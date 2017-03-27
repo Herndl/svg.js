@@ -218,7 +218,7 @@ declare namespace svgjs {
         namespace(): this;
         defs(): Defs;
         parent(): HTMLElement;
-        spof(spof): this;
+        spof(spof:any): this;
         remove(): this;
     }
     interface Library { Doc: Doc; }
@@ -909,7 +909,7 @@ declare namespace svgjs {
         f?: number;
     }
     export interface Transformation {
-        new (...Transform): Transformation;
+        new (...Transform:any[]): Transformation;
         new (source: Transform, inversed?: boolean): Transformation;
         at(pos: number): Matrix;
         undo(transform: Transform): this
