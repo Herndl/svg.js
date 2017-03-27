@@ -331,6 +331,7 @@ declare namespace svgjs {
         touchleave(cb: Function): this;
         touchend(cb: Function): this;
         touchcancel(cb: Function): this;
+        draggable():any;
     }
 
     //fx.js

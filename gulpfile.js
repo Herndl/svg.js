@@ -33,7 +33,6 @@ var parts = [
 , 'src/regex.js'
 , 'src/utilities.js'
 , 'src/default.js'
-, 'src/draggable.js'
 , 'src/color.js'
 , 'src/array.js'
 , 'src/pointarray.js'
@@ -80,11 +79,12 @@ var parts = [
 , 'src/set.js'
 , 'src/data.js'
 , 'src/memory.js'
-, 'src/select.js'
 , 'src/selector.js'
 , 'src/helpers.js'
 , 'src/polyfill.js'
-]
+, 'src/svg.select.js'
+, 'src/svg.draggable.js'
+];
 
 gulp.task('clean', function() {
   return del([ 'dist/*' ])

@@ -6,7 +6,7 @@
 * @copyright Wout Fierens <wout@mick-wout.com>
 * @license MIT
 *
-* BUILT: Mon Mar 27 2017 14:42:57 GMT+0200 (CEST)
+* BUILT: Mon Mar 27 2017 15:07:09 GMT+0200 (CEST)
 */;
 (function(root, factory) {
   if (typeof define === 'function' && define.amd) {
@@ -312,230 +312,6 @@ SVG.defaults = {
   }
 
 }
-;(function() {
-
-  // creates handler, saves it
-  function DragHandler(el){
-    el.remember('_draggable', this)
-    this.el = el
-  }
-
-
-  // Sets new parameter, starts dragging
-  DragHandler.prototype.init = function(constraint, val){
-    var _this = this
-    this.constraint = constraint
-    this.value = val
-    this.el.on('mousedown.drag', function(e){ _this.start(e) })
-    this.el.on('touchstart.drag', function(e){ _this.start(e) })
-  }
-
-  // transforms one point from screen to user coords
-  DragHandler.prototype.transformPoint = function(event, offset){
-      event = event || window.event
-      var touches = event.changedTouches && event.changedTouches[0] || event
-      this.p.x = touches.pageX - (offset || 0)
-      this.p.y = touches.pageY
-      return this.p.matrixTransform(this.m)
-  }
-
-  // gets elements bounding box with special handling of groups, nested and use
-  DragHandler.prototype.getBBox = function(){
-
-    var box = this.el.bbox()
-
-    if(this.el instanceof SVG.Nested) box = this.el.rbox()
-
-    if (this.el instanceof SVG.G || this.el instanceof SVG.Use || this.el instanceof SVG.Nested) {
-      box.x = this.el.x()
-      box.y = this.el.y()
-    }
-
-    return box
-  }
-
-  // start dragging
-  DragHandler.prototype.start = function(e){
-
-    // check for left button
-    if(e.type == 'click'|| e.type == 'mousedown' || e.type == 'mousemove'){
-      if((e.which || e.buttons) != 1){
-          return
-      }
-    }
-
-    var _this = this
-
-    // fire beforedrag event
-    this.el.fire('beforedrag', { event: e, handler: this })
-
-    // search for parent on the fly to make sure we can call
-    // draggable() even when element is not in the dom currently
-    this.parent = this.parent || this.el.parent(SVG.Nested) || this.el.parent(SVG.Doc)
-    this.p = this.parent.node.createSVGPoint()
-
-    // save current transformation matrix
-    this.m = this.el.node.getScreenCTM().inverse()
-
-    var box = this.getBBox()
-
-    var anchorOffset;
-
-    // fix text-anchor in text-element (#37)
-    if(this.el instanceof SVG.Text){
-      anchorOffset = this.el.node.getComputedTextLength();
-
-      switch(this.el.attr('text-anchor')){
-        case 'middle':
-          anchorOffset /= 2;
-          break
-        case 'start':
-          anchorOffset = 0;
-          break;
-      }
-    }
-
-    this.startPoints = {
-      // We take absolute coordinates since we are just using a delta here
-      point: this.transformPoint(e, anchorOffset),
-      box:   box,
-      transform: this.el.transform()
-    }
-
-    // add drag and end events to window
-    SVG.on(window, 'mousemove.drag', function(e){ _this.drag(e) })
-    SVG.on(window, 'touchmove.drag', function(e){ _this.drag(e) })
-    SVG.on(window, 'mouseup.drag', function(e){ _this.end(e) })
-    SVG.on(window, 'touchend.drag', function(e){ _this.end(e) })
-
-    // fire dragstart event
-    this.el.fire('dragstart', {event: e, p: this.startPoints.point, m: this.m, handler: this})
-
-    // prevent browser drag behavior
-    e.preventDefault()
-
-    // prevent propagation to a parent that might also have dragging enabled
-    e.stopPropagation();
-  }
-
-  // while dragging
-  DragHandler.prototype.drag = function(e){
-
-    var box = this.getBBox()
-      , p   = this.transformPoint(e)
-      , x   = this.startPoints.box.x + p.x - this.startPoints.point.x
-      , y   = this.startPoints.box.y + p.y - this.startPoints.point.y
-      , c   = this.constraint
-      , gx  = p.x - this.startPoints.point.x
-      , gy  = p.y - this.startPoints.point.y
-
-    var event = new CustomEvent('dragmove', {
-        detail: {
-            event: e
-          , p: p
-          , m: this.m
-          , handler: this
-        }
-      , cancelable: true
-    })
-
-    this.el.fire(event)
-
-    if(event.defaultPrevented) return p
-
-    // move the element to its new position, if possible by constraint
-    if (typeof c == 'function') {
-
-      var coord = c.call(this.el, x, y, this.m)
-
-      // bool, just show us if movement is allowed or not
-      if (typeof coord == 'boolean') {
-        coord = {
-          x: coord,
-          y: coord
-        }
-      }
-
-      // if true, we just move. If !false its a number and we move it there
-      if (coord.x === true) {
-        this.el.x(x)
-      } else if (coord.x !== false) {
-        this.el.x(coord.x)
-      }
-
-      if (coord.y === true) {
-        this.el.y(y)
-      } else if (coord.y !== false) {
-        this.el.y(coord.y)
-      }
-
-    } else if (typeof c == 'object') {
-
-      // keep element within constrained box
-      if (c.minX != null && x < c.minX)
-        x = c.minX
-      else if (c.maxX != null && x > c.maxX - box.width){
-        x = c.maxX - box.width
-      }if (c.minY != null && y < c.minY)
-        y = c.minY
-      else if (c.maxY != null && y > c.maxY - box.height)
-        y = c.maxY - box.height
-
-      if(this.el instanceof SVG.G)
-        this.el.matrix(this.startPoints.transform).transform({x:gx, y: gy}, true)
-      else
-        this.el.move(x, y)
-    }
-
-    // so we can use it in the end-method, too
-    return p
-  }
-
-  DragHandler.prototype.end = function(e){
-
-    // final drag
-    var p = this.drag(e);
-
-    // fire dragend event
-    this.el.fire('dragend', { event: e, p: p, m: this.m, handler: this })
-
-    // unbind events
-    SVG.off(window, 'mousemove.drag')
-    SVG.off(window, 'touchmove.drag')
-    SVG.off(window, 'mouseup.drag')
-    SVG.off(window, 'touchend.drag')
-
-  }
-
-  SVG.extend(SVG.Element, {
-    // Make element draggable
-    // Constraint might be an object (as described in readme.md) or a function in the form "function (x, y)" that gets called before every move.
-    // The function can return a boolean or an object of the form {x, y}, to which the element will be moved. "False" skips moving, true moves to raw x, y.
-    draggable: function(value, constraint) {
-
-      // Check the parameters and reassign if needed
-      if (typeof value == 'function' || typeof value == 'object') {
-        constraint = value
-        value = true
-      }
-
-      var dragHandler = this.remember('_draggable') || new DragHandler(this)
-
-      // When no parameter is given, value is true
-      value = typeof value === 'undefined' ? true : value
-
-      if(value) dragHandler.init(constraint || {}, value)
-      else {
-        this.off('mousedown.drag')
-        this.off('touchstart.drag')
-      }
-
-      return this
-    }
-
-  })
-
-}).call(this);
 // Module for color convertions
 SVG.Color = function(color) {
   var match
@@ -5459,6 +5235,242 @@ SVG.extend(SVG.Element, {
   }
 
 })
+// Method for getting an element by id
+SVG.get = function(id) {
+  var node = document.getElementById(idFromReference(id) || id)
+  return SVG.adopt(node)
+}
+
+// Select elements by query string
+SVG.select = function(query, parent) {
+  return new SVG.Set(
+    SVG.utils.map((parent || document).querySelectorAll(query), function(node) {
+      return SVG.adopt(node)
+    })
+  )
+}
+
+SVG.extend(SVG.Parent, {
+  // Scoped select method
+  select: function(query) {
+    return SVG.select(query, this.node)
+  }
+
+})
+function pathRegReplace(a, b, c, d) {
+  return c + d.replace(SVG.regex.dots, ' .')
+}
+
+// creates deep clone of array
+function array_clone(arr){
+  var clone = arr.slice(0)
+  for(var i = clone.length; i--;){
+    if(Array.isArray(clone[i])){
+      clone[i] = array_clone(clone[i])
+    }
+  }
+  return clone
+}
+
+// tests if a given element is instance of an object
+function is(el, obj){
+  return el instanceof obj
+}
+
+// tests if a given selector matches an element
+function matches(el, selector) {
+  return (el.matches || el.matchesSelector || el.msMatchesSelector || el.mozMatchesSelector || el.webkitMatchesSelector || el.oMatchesSelector).call(el, selector);
+}
+
+// Convert dash-separated-string to camelCase
+function camelCase(s) {
+  return s.toLowerCase().replace(/-(.)/g, function(m, g) {
+    return g.toUpperCase()
+  })
+}
+
+// Capitalize first letter of a string
+function capitalize(s) {
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+// Ensure to six-based hex
+function fullHex(hex) {
+  return hex.length == 4 ?
+    [ '#',
+      hex.substring(1, 2), hex.substring(1, 2)
+    , hex.substring(2, 3), hex.substring(2, 3)
+    , hex.substring(3, 4), hex.substring(3, 4)
+    ].join('') : hex
+}
+
+// Component to hex value
+function compToHex(comp) {
+  var hex = comp.toString(16)
+  return hex.length == 1 ? '0' + hex : hex
+}
+
+// Calculate proportional width and height values when necessary
+function proportionalSize(element, width, height) {
+  if (width == null || height == null) {
+    var box = element.bbox()
+
+    if (width == null)
+      width = box.width / box.height * height
+    else if (height == null)
+      height = box.height / box.width * width
+  }
+
+  return {
+    width:  width
+  , height: height
+  }
+}
+
+// Delta transform point
+function deltaTransformPoint(matrix, x, y) {
+  return {
+    x: x * matrix.a + y * matrix.c + 0
+  , y: x * matrix.b + y * matrix.d + 0
+  }
+}
+
+// Map matrix array to object
+function arrayToMatrix(a) {
+  return { a: a[0], b: a[1], c: a[2], d: a[3], e: a[4], f: a[5] }
+}
+
+// Parse matrix if required
+function parseMatrix(matrix) {
+  if (!(matrix instanceof SVG.Matrix))
+    matrix = new SVG.Matrix(matrix)
+
+  return matrix
+}
+
+// Add centre point to transform object
+function ensureCentre(o, target) {
+  o.cx = o.cx == null ? target.bbox().cx : o.cx
+  o.cy = o.cy == null ? target.bbox().cy : o.cy
+}
+
+// PathArray Helpers
+function arrayToString(a) {
+  for (var i = 0, il = a.length, s = ''; i < il; i++) {
+    s += a[i][0]
+
+    if (a[i][1] != null) {
+      s += a[i][1]
+
+      if (a[i][2] != null) {
+        s += ' '
+        s += a[i][2]
+
+        if (a[i][3] != null) {
+          s += ' '
+          s += a[i][3]
+          s += ' '
+          s += a[i][4]
+
+          if (a[i][5] != null) {
+            s += ' '
+            s += a[i][5]
+            s += ' '
+            s += a[i][6]
+
+            if (a[i][7] != null) {
+              s += ' '
+              s += a[i][7]
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return s + ' '
+}
+
+// Deep new id assignment
+function assignNewId(node) {
+  // do the same for SVG child nodes as well
+  for (var i = node.childNodes.length - 1; i >= 0; i--)
+    if (node.childNodes[i] instanceof window.SVGElement)
+      assignNewId(node.childNodes[i])
+
+  return SVG.adopt(node).id(SVG.eid(node.nodeName))
+}
+
+// Add more bounding box properties
+function fullBox(b) {
+  if (b.x == null) {
+    b.x      = 0
+    b.y      = 0
+    b.width  = 0
+    b.height = 0
+  }
+
+  b.w  = b.width
+  b.h  = b.height
+  b.x2 = b.x + b.width
+  b.y2 = b.y + b.height
+  b.cx = b.x + b.width / 2
+  b.cy = b.y + b.height / 2
+
+  return b
+}
+
+// Get id from reference string
+function idFromReference(url) {
+  var m = url.toString().match(SVG.regex.reference)
+
+  if (m) return m[1]
+}
+
+// Create matrix array for looping
+var abcdef = 'abcdef'.split('')
+// Add CustomEvent to IE9 and IE10
+if (typeof window.CustomEvent !== 'function') {
+  // Code from: https://developer.mozilla.org/en-US/docs/Web/API/CustomEvent
+  var CustomEvent = function(event, options) {
+    options = options || { bubbles: false, cancelable: false, detail: undefined }
+    var e = document.createEvent('CustomEvent')
+    e.initCustomEvent(event, options.bubbles, options.cancelable, options.detail)
+    return e
+  }
+
+  CustomEvent.prototype = window.Event.prototype
+
+  window.CustomEvent = CustomEvent
+}
+
+// requestAnimationFrame / cancelAnimationFrame Polyfill with fallback based on Paul Irish
+(function(w) {
+  var lastTime = 0
+  var vendors = ['moz', 'webkit']
+
+  for(var x = 0; x < vendors.length && !window.requestAnimationFrame; ++x) {
+    w.requestAnimationFrame = w[vendors[x] + 'RequestAnimationFrame']
+    w.cancelAnimationFrame  = w[vendors[x] + 'CancelAnimationFrame'] ||
+                              w[vendors[x] + 'CancelRequestAnimationFrame']
+  }
+
+  w.requestAnimationFrame = w.requestAnimationFrame ||
+    function(callback) {
+      var currTime = new Date().getTime()
+      var timeToCall = Math.max(0, 16 - (currTime - lastTime))
+
+      var id = w.setTimeout(function() {
+        callback(currTime + timeToCall)
+      }, timeToCall)
+
+      lastTime = currTime + timeToCall
+      return id
+    }
+
+  w.cancelAnimationFrame = w.cancelAnimationFrame || w.clearTimeout;
+
+}(window))
 /*jshint -W030*/
 /*jshint -W083*/
 ;(function (undefined) {
@@ -5784,242 +5796,230 @@ SVG.extend(SVG.Element, {
 
 })();
 
-// Method for getting an element by id
-SVG.get = function(id) {
-  var node = document.getElementById(idFromReference(id) || id)
-  return SVG.adopt(node)
-}
+;(function() {
 
-// Select elements by query string
-SVG.select = function(query, parent) {
-  return new SVG.Set(
-    SVG.utils.map((parent || document).querySelectorAll(query), function(node) {
-      return SVG.adopt(node)
-    })
-  )
-}
-
-SVG.extend(SVG.Parent, {
-  // Scoped select method
-  select: function(query) {
-    return SVG.select(query, this.node)
+  // creates handler, saves it
+  function DragHandler(el){
+    el.remember('_draggable', this)
+    this.el = el
   }
 
-})
-function pathRegReplace(a, b, c, d) {
-  return c + d.replace(SVG.regex.dots, ' .')
-}
 
-// creates deep clone of array
-function array_clone(arr){
-  var clone = arr.slice(0)
-  for(var i = clone.length; i--;){
-    if(Array.isArray(clone[i])){
-      clone[i] = array_clone(clone[i])
+  // Sets new parameter, starts dragging
+  DragHandler.prototype.init = function(constraint, val){
+    var _this = this
+    this.constraint = constraint
+    this.value = val
+    this.el.on('mousedown.drag', function(e){ _this.start(e) })
+    this.el.on('touchstart.drag', function(e){ _this.start(e) })
+  }
+
+  // transforms one point from screen to user coords
+  DragHandler.prototype.transformPoint = function(event, offset){
+      event = event || window.event
+      var touches = event.changedTouches && event.changedTouches[0] || event
+      this.p.x = touches.pageX - (offset || 0)
+      this.p.y = touches.pageY
+      return this.p.matrixTransform(this.m)
+  }
+
+  // gets elements bounding box with special handling of groups, nested and use
+  DragHandler.prototype.getBBox = function(){
+
+    var box = this.el.bbox()
+
+    if(this.el instanceof SVG.Nested) box = this.el.rbox()
+
+    if (this.el instanceof SVG.G || this.el instanceof SVG.Use || this.el instanceof SVG.Nested) {
+      box.x = this.el.x()
+      box.y = this.el.y()
     }
-  }
-  return clone
-}
 
-// tests if a given element is instance of an object
-function is(el, obj){
-  return el instanceof obj
-}
-
-// tests if a given selector matches an element
-function matches(el, selector) {
-  return (el.matches || el.matchesSelector || el.msMatchesSelector || el.mozMatchesSelector || el.webkitMatchesSelector || el.oMatchesSelector).call(el, selector);
-}
-
-// Convert dash-separated-string to camelCase
-function camelCase(s) {
-  return s.toLowerCase().replace(/-(.)/g, function(m, g) {
-    return g.toUpperCase()
-  })
-}
-
-// Capitalize first letter of a string
-function capitalize(s) {
-  return s.charAt(0).toUpperCase() + s.slice(1)
-}
-
-// Ensure to six-based hex
-function fullHex(hex) {
-  return hex.length == 4 ?
-    [ '#',
-      hex.substring(1, 2), hex.substring(1, 2)
-    , hex.substring(2, 3), hex.substring(2, 3)
-    , hex.substring(3, 4), hex.substring(3, 4)
-    ].join('') : hex
-}
-
-// Component to hex value
-function compToHex(comp) {
-  var hex = comp.toString(16)
-  return hex.length == 1 ? '0' + hex : hex
-}
-
-// Calculate proportional width and height values when necessary
-function proportionalSize(element, width, height) {
-  if (width == null || height == null) {
-    var box = element.bbox()
-
-    if (width == null)
-      width = box.width / box.height * height
-    else if (height == null)
-      height = box.height / box.width * width
+    return box
   }
 
-  return {
-    width:  width
-  , height: height
-  }
-}
+  // start dragging
+  DragHandler.prototype.start = function(e){
 
-// Delta transform point
-function deltaTransformPoint(matrix, x, y) {
-  return {
-    x: x * matrix.a + y * matrix.c + 0
-  , y: x * matrix.b + y * matrix.d + 0
-  }
-}
-
-// Map matrix array to object
-function arrayToMatrix(a) {
-  return { a: a[0], b: a[1], c: a[2], d: a[3], e: a[4], f: a[5] }
-}
-
-// Parse matrix if required
-function parseMatrix(matrix) {
-  if (!(matrix instanceof SVG.Matrix))
-    matrix = new SVG.Matrix(matrix)
-
-  return matrix
-}
-
-// Add centre point to transform object
-function ensureCentre(o, target) {
-  o.cx = o.cx == null ? target.bbox().cx : o.cx
-  o.cy = o.cy == null ? target.bbox().cy : o.cy
-}
-
-// PathArray Helpers
-function arrayToString(a) {
-  for (var i = 0, il = a.length, s = ''; i < il; i++) {
-    s += a[i][0]
-
-    if (a[i][1] != null) {
-      s += a[i][1]
-
-      if (a[i][2] != null) {
-        s += ' '
-        s += a[i][2]
-
-        if (a[i][3] != null) {
-          s += ' '
-          s += a[i][3]
-          s += ' '
-          s += a[i][4]
-
-          if (a[i][5] != null) {
-            s += ' '
-            s += a[i][5]
-            s += ' '
-            s += a[i][6]
-
-            if (a[i][7] != null) {
-              s += ' '
-              s += a[i][7]
-            }
-          }
-        }
+    // check for left button
+    if(e.type == 'click'|| e.type == 'mousedown' || e.type == 'mousemove'){
+      if((e.which || e.buttons) != 1){
+          return
       }
     }
-  }
 
-  return s + ' '
-}
+    var _this = this
 
-// Deep new id assignment
-function assignNewId(node) {
-  // do the same for SVG child nodes as well
-  for (var i = node.childNodes.length - 1; i >= 0; i--)
-    if (node.childNodes[i] instanceof window.SVGElement)
-      assignNewId(node.childNodes[i])
+    // fire beforedrag event
+    this.el.fire('beforedrag', { event: e, handler: this })
 
-  return SVG.adopt(node).id(SVG.eid(node.nodeName))
-}
+    // search for parent on the fly to make sure we can call
+    // draggable() even when element is not in the dom currently
+    this.parent = this.parent || this.el.parent(SVG.Nested) || this.el.parent(SVG.Doc)
+    this.p = this.parent.node.createSVGPoint()
 
-// Add more bounding box properties
-function fullBox(b) {
-  if (b.x == null) {
-    b.x      = 0
-    b.y      = 0
-    b.width  = 0
-    b.height = 0
-  }
+    // save current transformation matrix
+    this.m = this.el.node.getScreenCTM().inverse()
 
-  b.w  = b.width
-  b.h  = b.height
-  b.x2 = b.x + b.width
-  b.y2 = b.y + b.height
-  b.cx = b.x + b.width / 2
-  b.cy = b.y + b.height / 2
+    var box = this.getBBox()
 
-  return b
-}
+    var anchorOffset;
 
-// Get id from reference string
-function idFromReference(url) {
-  var m = url.toString().match(SVG.regex.reference)
+    // fix text-anchor in text-element (#37)
+    if(this.el instanceof SVG.Text){
+      anchorOffset = this.el.node.getComputedTextLength();
 
-  if (m) return m[1]
-}
-
-// Create matrix array for looping
-var abcdef = 'abcdef'.split('')
-// Add CustomEvent to IE9 and IE10
-if (typeof window.CustomEvent !== 'function') {
-  // Code from: https://developer.mozilla.org/en-US/docs/Web/API/CustomEvent
-  var CustomEvent = function(event, options) {
-    options = options || { bubbles: false, cancelable: false, detail: undefined }
-    var e = document.createEvent('CustomEvent')
-    e.initCustomEvent(event, options.bubbles, options.cancelable, options.detail)
-    return e
-  }
-
-  CustomEvent.prototype = window.Event.prototype
-
-  window.CustomEvent = CustomEvent
-}
-
-// requestAnimationFrame / cancelAnimationFrame Polyfill with fallback based on Paul Irish
-(function(w) {
-  var lastTime = 0
-  var vendors = ['moz', 'webkit']
-
-  for(var x = 0; x < vendors.length && !window.requestAnimationFrame; ++x) {
-    w.requestAnimationFrame = w[vendors[x] + 'RequestAnimationFrame']
-    w.cancelAnimationFrame  = w[vendors[x] + 'CancelAnimationFrame'] ||
-                              w[vendors[x] + 'CancelRequestAnimationFrame']
-  }
-
-  w.requestAnimationFrame = w.requestAnimationFrame ||
-    function(callback) {
-      var currTime = new Date().getTime()
-      var timeToCall = Math.max(0, 16 - (currTime - lastTime))
-
-      var id = w.setTimeout(function() {
-        callback(currTime + timeToCall)
-      }, timeToCall)
-
-      lastTime = currTime + timeToCall
-      return id
+      switch(this.el.attr('text-anchor')){
+        case 'middle':
+          anchorOffset /= 2;
+          break
+        case 'start':
+          anchorOffset = 0;
+          break;
+      }
     }
 
-  w.cancelAnimationFrame = w.cancelAnimationFrame || w.clearTimeout;
+    this.startPoints = {
+      // We take absolute coordinates since we are just using a delta here
+      point: this.transformPoint(e, anchorOffset),
+      box:   box,
+      transform: this.el.transform()
+    }
 
-}(window))
+    // add drag and end events to window
+    SVG.on(window, 'mousemove.drag', function(e){ _this.drag(e) })
+    SVG.on(window, 'touchmove.drag', function(e){ _this.drag(e) })
+    SVG.on(window, 'mouseup.drag', function(e){ _this.end(e) })
+    SVG.on(window, 'touchend.drag', function(e){ _this.end(e) })
+
+    // fire dragstart event
+    this.el.fire('dragstart', {event: e, p: this.startPoints.point, m: this.m, handler: this})
+
+    // prevent browser drag behavior
+    e.preventDefault()
+
+    // prevent propagation to a parent that might also have dragging enabled
+    e.stopPropagation();
+  }
+
+  // while dragging
+  DragHandler.prototype.drag = function(e){
+
+    var box = this.getBBox()
+      , p   = this.transformPoint(e)
+      , x   = this.startPoints.box.x + p.x - this.startPoints.point.x
+      , y   = this.startPoints.box.y + p.y - this.startPoints.point.y
+      , c   = this.constraint
+      , gx  = p.x - this.startPoints.point.x
+      , gy  = p.y - this.startPoints.point.y
+
+    var event = new CustomEvent('dragmove', {
+        detail: {
+            event: e
+          , p: p
+          , m: this.m
+          , handler: this
+        }
+      , cancelable: true
+    })
+
+    this.el.fire(event)
+
+    if(event.defaultPrevented) return p
+
+    // move the element to its new position, if possible by constraint
+    if (typeof c == 'function') {
+
+      var coord = c.call(this.el, x, y, this.m)
+
+      // bool, just show us if movement is allowed or not
+      if (typeof coord == 'boolean') {
+        coord = {
+          x: coord,
+          y: coord
+        }
+      }
+
+      // if true, we just move. If !false its a number and we move it there
+      if (coord.x === true) {
+        this.el.x(x)
+      } else if (coord.x !== false) {
+        this.el.x(coord.x)
+      }
+
+      if (coord.y === true) {
+        this.el.y(y)
+      } else if (coord.y !== false) {
+        this.el.y(coord.y)
+      }
+
+    } else if (typeof c == 'object') {
+
+      // keep element within constrained box
+      if (c.minX != null && x < c.minX)
+        x = c.minX
+      else if (c.maxX != null && x > c.maxX - box.width){
+        x = c.maxX - box.width
+      }if (c.minY != null && y < c.minY)
+        y = c.minY
+      else if (c.maxY != null && y > c.maxY - box.height)
+        y = c.maxY - box.height
+
+      if(this.el instanceof SVG.G)
+        this.el.matrix(this.startPoints.transform).transform({x:gx, y: gy}, true)
+      else
+        this.el.move(x, y)
+    }
+
+    // so we can use it in the end-method, too
+    return p
+  }
+
+  DragHandler.prototype.end = function(e){
+
+    // final drag
+    var p = this.drag(e);
+
+    // fire dragend event
+    this.el.fire('dragend', { event: e, p: p, m: this.m, handler: this })
+
+    // unbind events
+    SVG.off(window, 'mousemove.drag')
+    SVG.off(window, 'touchmove.drag')
+    SVG.off(window, 'mouseup.drag')
+    SVG.off(window, 'touchend.drag')
+
+  }
+
+  SVG.extend(SVG.Element, {
+    // Make element draggable
+    // Constraint might be an object (as described in readme.md) or a function in the form "function (x, y)" that gets called before every move.
+    // The function can return a boolean or an object of the form {x, y}, to which the element will be moved. "False" skips moving, true moves to raw x, y.
+    draggable: function(value, constraint) {
+
+      // Check the parameters and reassign if needed
+      if (typeof value == 'function' || typeof value == 'object') {
+        constraint = value
+        value = true
+      }
+
+      var dragHandler = this.remember('_draggable') || new DragHandler(this)
+
+      // When no parameter is given, value is true
+      value = typeof value === 'undefined' ? true : value
+
+      if(value) dragHandler.init(constraint || {}, value)
+      else {
+        this.off('mousedown.drag')
+        this.off('touchstart.drag')
+      }
+
+      return this
+    }
+
+  })
+
+}).call(this);
 
 return SVG
 
