@@ -43,8 +43,9 @@ declare namespace svgjs {
     }
 
     // array.js
-    type ArrayAlias = _Array | number[] | string;
-    
+    type ArrayAlias = _Array | number[] | string ;
+    type NumberAlias = number[] | number;
+
     interface _Array {
         new (array?: ArrayAlias, fallback?: number[]): _Array;
         value: number[];
@@ -362,9 +363,9 @@ declare namespace svgjs {
     export interface Gradient extends Container {
         new (type: string): Gradient;
         at(offset?: number, color?: ColorAlias, opacity?: number): Stop;
-        at(opts: StopProperties): Stop;
+        at(opts?: StopProperties): any;
         update(block?: Function): this;
-        fill(): string;
+        fill(): any;
         toString(): string;
         from(x: number, y: number): this;
         to(x: number, y: number): this;
@@ -372,6 +373,7 @@ declare namespace svgjs {
     }
     interface Container {
         gradient(type: string, block?: (stop: Gradient) => void): Gradient;
+        group(): G;
     }
     interface Library {
         Gradient: Gradient;
@@ -383,7 +385,6 @@ declare namespace svgjs {
         new (): G;
         gbox(): BBox;
     }
-    interface Container { group(): G; }
     interface Library { G: G; }
 
     // hyperlink.js
@@ -391,7 +392,7 @@ declare namespace svgjs {
         new (): A;
         to(url: string): this;
         to(): string;
-        show(target: string): this;
+        show(target?: string): this;
         show(): string;
         target(target: string): this;
         target(): string;
@@ -605,7 +606,7 @@ declare namespace svgjs {
 
     // path.js
     interface PathArrayPoint extends Array<number | string> { }
-    type PathArrayAlias = PathArray | (string | number)[] | PathArrayPoint[] | string;
+    type PathArrayAlias = PathArray | (string | number)[] | PathArrayPoint[] | string | number;
     
     export interface Path extends Shape {
         new (): Path;
@@ -625,7 +626,7 @@ declare namespace svgjs {
         new (d: PathArrayAlias): PathArray;
         move(x: number, y: number): this;
         size(width?: number, height?: number): this;
-        parse(array: PathArrayAlias): PathArrayPoint[];
+        parse(array: any): any[];
         bbox(): BBox;
     }
     interface Library { PathArray: PathArray; }
@@ -633,7 +634,7 @@ declare namespace svgjs {
     // pattern.js
     export interface Pattern extends Container {
         new (): Pattern;
-        fill(): string;
+        fill(): any;
         update(block: (pattern: Pattern) => void): this;
         toString(): string;
     }
@@ -675,7 +676,7 @@ declare namespace svgjs {
             x2: number;
             y2: number;
         };
-        parse(points: PointArrayAlias): ArrayPoint[];
+        parse(points: any): any[];
         move(x: number, y: number): this;
         size(width?: number, height?: number): this;
         bbox(): BBox;
