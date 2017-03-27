@@ -6,7 +6,7 @@
 * @copyright Wout Fierens <wout@mick-wout.com>
 * @license MIT
 *
-* BUILT: Mon Mar 27 2017 15:07:09 GMT+0200 (CEST)
+* BUILT: Mon Mar 27 2017 16:02:50 GMT+0200 (CEST)
 */;
 (function(root, factory) {
   if (typeof define === 'function' && define.amd) {
@@ -5471,555 +5471,563 @@ if (typeof window.CustomEvent !== 'function') {
   w.cancelAnimationFrame = w.cancelAnimationFrame || w.clearTimeout;
 
 }(window))
-/*jshint -W030*/
-/*jshint -W083*/
-;(function (undefined) {
+function SelectHandler(el) {
 
-    function SelectHandler(el) {
+  el.remember('_selectHandler', this);
+  this.el = el;
+  this.pointSelection = { isSelected: false };
+  this.rectSelection = { isSelected: false };
 
-        this.el = el;
-        el.remember('_selectHandler', this);
-        this.pointSelection = {isSelected: false};
-        this.rectSelection = {isSelected: false};
+}
 
+SelectHandler.prototype.init = function (value, options) {
+
+  var bbox = this.el.bbox();
+  this.options = {};
+
+  // Merging the defaults and the options-object together
+  for (var i in this.el.selectize.defaults) {
+    this.options[i] = this.el.selectize.defaults[i];
+    if (options[i] !== undefined) {
+      this.options[i] = options[i];
     }
+  }
 
-    SelectHandler.prototype.init = function (value, options) {
+  this.parent = this.el.parent();
+  this.nested = (this.nested || this.parent.group());
+  this.nested.matrix(new SVG.Matrix(this.el).translate(bbox.x, bbox.y));
 
-        var bbox = this.el.bbox();
-        this.options = {};
+  // When deepSelect is enabled and the element is a line/polyline/polygon, draw only points for
+  // moving
+  if (this.options.deepSelect && ['line', 'polyline', 'polygon'].indexOf(this.el.type) !== -1) {
+    this.selectPoints(value);
+  } else {
+    this.selectRect(value);
+  }
 
-        // Merging the defaults and the options-object together
-        for (var i in this.el.selectize.defaults) {
-            this.options[i] = this.el.selectize.defaults[i];
-            if (options[i] !== undefined) {
-                this.options[i] = options[i];
-            }
-        }
+  this.observe();
+  this.cleanup();
 
-        this.parent = this.el.parent();
-        this.nested = (this.nested || this.parent.group());
-        this.nested.matrix(new SVG.Matrix(this.el).translate(bbox.x, bbox.y));
+};
 
-        // When deepSelect is enabled and the element is a line/polyline/polygon, draw only points for moving
-        if (this.options.deepSelect && ['line', 'polyline', 'polygon'].indexOf(this.el.type) !== -1) {
-            this.selectPoints(value);
-        } else {
-            this.selectRect(value);
-        }
+SelectHandler.prototype.selectPoints = function (value) {
 
-        this.observe();
-        this.cleanup();
+  this.pointSelection.isSelected = value;
 
+  // When set is already there we dont have to create one
+  if (this.pointSelection.set) {
+    return this;
+  }
+
+  // Create our set of elements
+  this.pointSelection.set = this.parent.set();
+  // draw the circles and mark the element as selected
+  this.drawCircles();
+
+  return this;
+
+};
+
+// create the point-array which contains the 2 points of a line or simply the points-array of
+// polyline/polygon
+SelectHandler.prototype.getPointArray = function () {
+  var bbox = this.el.bbox();
+
+  return this.el.array().valueOf().map(function (el) {
+    return [el[0] - bbox.x, el[1] - bbox.y];
+  });
+};
+
+// The function to draw the circles
+SelectHandler.prototype.drawCircles = function () {
+
+  var _this = this, array = this.getPointArray();
+
+  // go through the array of points
+  for (var i = 0, len = array.length; i < len; ++i) {
+
+    var curriedEvent = (function (k) {
+      return function (ev) {
+        ev = ev || window.event;
+        ev.preventDefault ? ev.preventDefault() : ev.returnValue = false;
+
+        var x = ev.pageX || ev.touches[0].pageX;
+        var y = ev.pageY || ev.touches[0].pageY;
+        _this.el.fire('point', { x: x, y: y, i: k, event: ev });
+      };
+    })(i);
+
+    // add every point to the set
+    this.pointSelection.set.add(
+      // a circle with our css-classes and a touchstart-event which fires our event for moving
+      // points
+      this.nested.circle(this.options.radius)
+        .center(array[i][0], array[i][1])
+        .addClass(this.options.classPoints)
+        .addClass(this.options.classPoints + '_point')
+        .on('touchstart', curriedEvent)
+        .on('mousedown', curriedEvent)
+    );
+  }
+
+};
+
+// every time a circle is moved, we have to update the positions of our circle
+SelectHandler.prototype.updatePointSelection = function () {
+  var array = this.getPointArray();
+
+  this.pointSelection.set.each(function (i) {
+    if (this.cx() === array[i][0] && this.cy() === array[i][1]) {
+      return;
+    }
+    this.center(array[i][0], array[i][1]);
+  });
+};
+
+SelectHandler.prototype.updateRectSelection = function () {
+  var bbox = this.el.bbox();
+
+  this.rectSelection.set.get(0).attr({
+    width: bbox.width,
+    height: bbox.height
+  });
+
+  // set.get(1) is always in the upper left corner. no need to move it
+  if (this.options.points) {
+    this.rectSelection.set.get(2).center(bbox.width, 0);
+    this.rectSelection.set.get(3).center(bbox.width, bbox.height);
+    this.rectSelection.set.get(4).center(0, bbox.height);
+
+    this.rectSelection.set.get(5).center(bbox.width / 2, 0);
+    this.rectSelection.set.get(6).center(bbox.width, bbox.height / 2);
+    this.rectSelection.set.get(7).center(bbox.width / 2, bbox.height);
+    this.rectSelection.set.get(8).center(0, bbox.height / 2);
+  }
+
+  if (this.options.rotationPoint) {
+    if (this.options.points) {
+      this.rectSelection.set.get(9).center(bbox.width / 2, 20);
+    } else {
+      this.rectSelection.set.get(1).center(bbox.width / 2, 20);
+    }
+  }
+};
+
+SelectHandler.prototype.selectRect = function (value) {
+
+  var _this = this, bbox = this.el.bbox();
+
+  this.rectSelection.isSelected = value;
+
+  // when set is already p
+  this.rectSelection.set = this.rectSelection.set || this.parent.set();
+
+  // helperFunction to create a mouse-down function which triggers the event specified in
+  // `eventName`
+  function getMoseDownFunc(eventName) {
+    return function (ev) {
+      ev = ev || window.event;
+      ev.preventDefault ? ev.preventDefault() : ev.returnValue = false;
+
+      var x = ev.pageX || ev.touches[0].pageX;
+      var y = ev.pageY || ev.touches[0].pageY;
+      _this.el.fire(eventName, { x: x, y: y, event: ev });
     };
+  }
 
-    SelectHandler.prototype.selectPoints = function (value) {
+  // create the selection-rectangle and add the css-class
+  if (!this.rectSelection.set.get(0)) {
+    this.rectSelection.set.add(this.nested.rect(bbox.width, bbox.height).addClass(this.options.classRect));
+  }
 
-        this.pointSelection.isSelected = value;
+  // Draw Points at the edges, if enabled
+  if (this.options.points && !this.rectSelection.set.get(1)) {
+    var ename = "touchstart", mname = "mousedown";
+    this.rectSelection.set.add(this.nested.circle(this.options.radius).center(0, 0).attr('class', this.options.classPoints + '_lt').on(mname, getMoseDownFunc('lt')).on(ename, getMoseDownFunc('lt')));
+    this.rectSelection.set.add(this.nested.circle(this.options.radius).center(bbox.width, 0).attr('class', this.options.classPoints + '_rt').on(mname, getMoseDownFunc('rt')).on(ename, getMoseDownFunc('rt')));
+    this.rectSelection.set.add(this.nested.circle(this.options.radius).center(bbox.width, bbox.height).attr('class', this.options.classPoints + '_rb').on(mname, getMoseDownFunc('rb')).on(ename, getMoseDownFunc('rb')));
+    this.rectSelection.set.add(this.nested.circle(this.options.radius).center(0, bbox.height).attr('class', this.options.classPoints + '_lb').on(mname, getMoseDownFunc('lb')).on(ename, getMoseDownFunc('lb')));
 
-        // When set is already there we dont have to create one
-        if (this.pointSelection.set) {
-            return this;
-        }
+    this.rectSelection.set.add(this.nested.circle(this.options.radius).center(bbox.width / 2, 0).attr('class', this.options.classPoints + '_t').on(mname, getMoseDownFunc('t')).on(ename, getMoseDownFunc('t')));
+    this.rectSelection.set.add(this.nested.circle(this.options.radius).center(bbox.width, bbox.height / 2).attr('class', this.options.classPoints + '_r').on(mname, getMoseDownFunc('r')).on(ename, getMoseDownFunc('r')));
+    this.rectSelection.set.add(this.nested.circle(this.options.radius).center(bbox.width / 2, bbox.height).attr('class', this.options.classPoints + '_b').on(mname, getMoseDownFunc('b')).on(ename, getMoseDownFunc('b')));
+    this.rectSelection.set.add(this.nested.circle(this.options.radius).center(0, bbox.height / 2).attr('class', this.options.classPoints + '_l').on(mname, getMoseDownFunc('l')).on(ename, getMoseDownFunc('l')));
 
-        // Create our set of elements
-        this.pointSelection.set = this.parent.set();
-        // draw the circles and mark the element as selected
-        this.drawCircles();
+    this.rectSelection.set.each(function () {
+      this.addClass(_this.options.classPoints);
+    });
+  }
 
-        return this;
+  // draw rotationPint, if enabled
+  if (this.options.rotationPoint && ((this.options.points && !this.rectSelection.set.get(9)) || (!this.options.points && !this.rectSelection.set.get(1)))) {
 
+    var curriedEvent = function (ev) {
+      ev = ev || window.event;
+      ev.preventDefault ? ev.preventDefault() : ev.returnValue = false;
+
+      var x = ev.pageX || ev.touches[0].pageX;
+      var y = ev.pageY || ev.touches[0].pageY;
+      _this.el.fire('rot', { x: x, y: y, event: ev });
     };
+    this.rectSelection.set.add(this.nested.circle(this.options.radius).center(bbox.width / 2, 20).attr('class', this.options.classPoints + '_rot')
+      .on("touchstart", curriedEvent).on("mousedown", curriedEvent));
 
-    // create the point-array which contains the 2 points of a line or simply the points-array of polyline/polygon
-    SelectHandler.prototype.getPointArray = function () {
-        var bbox = this.el.bbox();
+  }
 
-        return this.el.array().valueOf().map(function (el) {
-            return [el[0] - bbox.x, el[1] - bbox.y];
+};
+
+SelectHandler.prototype.handler = function () {
+
+  var bbox = this.el.bbox();
+  this.nested.matrix(new SVG.Matrix(this.el).translate(bbox.x, bbox.y));
+
+  if (this.rectSelection.isSelected) {
+    this.updateRectSelection();
+  }
+
+  if (this.pointSelection.isSelected) {
+    this.updatePointSelection();
+  }
+
+};
+
+SelectHandler.prototype.observe = function () {
+  var _this = this;
+
+  if (MutationObserver) {
+    if (this.rectSelection.isSelected || this.pointSelection.isSelected) {
+      this.observerInst = this.observerInst || new MutationObserver(function () {
+          _this.handler();
         });
-    };
+      this.observerInst.observe(this.el.node, { attributes: true });
+    } else {
+      try {
+        this.observerInst.disconnect();
+        delete this.observerInst;
+      } catch (e) {
+      }
+    }
+  } else {
+    this.el.off('DOMAttrModified.select');
 
-    // The function to draw the circles
-    SelectHandler.prototype.drawCircles = function () {
+    if (this.rectSelection.isSelected || this.pointSelection.isSelected) {
+      this.el.on('DOMAttrModified.select', function () {
+        _this.handler();
+      });
+    }
+  }
+};
 
-        var _this = this, array = this.getPointArray();
+SelectHandler.prototype.cleanup = function () {
 
-        // go through the array of points
-        for (var i = 0, len = array.length; i < len; ++i) {
+  //var _this = this;
 
-            var curriedEvent = (function (k) {
-                return function (ev) {
-                    ev = ev || window.event;
-                    ev.preventDefault ? ev.preventDefault() : ev.returnValue = false;
-
-                    var x= ev.pageX || ev.touches[0].pageX;
-                    var y= ev.pageY || ev.touches[0].pageY;
-                    _this.el.fire('point', {x: x, y: y, i: k, event: ev});
-                };
-            })(i);
-
-            // add every point to the set
-            this.pointSelection.set.add(
-                // a circle with our css-classes and a touchstart-event which fires our event for moving points
-                this.nested.circle(this.options.radius)
-                    .center(array[i][0], array[i][1])
-                    .addClass(this.options.classPoints)
-                    .addClass(this.options.classPoints + '_point')
-                    .on('touchstart', curriedEvent)
-                    .on('mousedown', curriedEvent)
-            );
-        }
-
-    };
-
-    // every time a circle is moved, we have to update the positions of our circle
-    SelectHandler.prototype.updatePointSelection = function () {
-        var array = this.getPointArray();
-
-        this.pointSelection.set.each(function (i) {
-            if (this.cx() === array[i][0] && this.cy() === array[i][1]) {
-                return;
-            }
-            this.center(array[i][0], array[i][1]);
-        });
-    };
-
-    SelectHandler.prototype.updateRectSelection = function () {
-        var bbox = this.el.bbox();
-
-        this.rectSelection.set.get(0).attr({
-            width: bbox.width,
-            height: bbox.height
-        });
-
-        // set.get(1) is always in the upper left corner. no need to move it
-        if (this.options.points) {
-            this.rectSelection.set.get(2).center(bbox.width, 0);
-            this.rectSelection.set.get(3).center(bbox.width, bbox.height);
-            this.rectSelection.set.get(4).center(0, bbox.height);
-
-            this.rectSelection.set.get(5).center(bbox.width / 2, 0);
-            this.rectSelection.set.get(6).center(bbox.width, bbox.height / 2);
-            this.rectSelection.set.get(7).center(bbox.width / 2, bbox.height);
-            this.rectSelection.set.get(8).center(0, bbox.height / 2);
-        }
-
-        if (this.options.rotationPoint) {
-            if (this.options.points) {
-                this.rectSelection.set.get(9).center(bbox.width / 2, 20);
-            } else {
-                this.rectSelection.set.get(1).center(bbox.width / 2, 20);
-            }
-        }
-    };
-
-    SelectHandler.prototype.selectRect = function (value) {
-
-        var _this = this, bbox = this.el.bbox();
-
-        this.rectSelection.isSelected = value;
-
-        // when set is already p
-        this.rectSelection.set = this.rectSelection.set || this.parent.set();
-
-        // helperFunction to create a mouse-down function which triggers the event specified in `eventName`
-        function getMoseDownFunc(eventName) {
-            return function (ev) {
-                ev = ev || window.event;
-                ev.preventDefault ? ev.preventDefault() : ev.returnValue = false;
-
-                var x= ev.pageX || ev.touches[0].pageX;
-                var y= ev.pageY || ev.touches[0].pageY;
-                _this.el.fire(eventName, {x: x, y: y, event: ev});
-            };
-        }
-
-        // create the selection-rectangle and add the css-class
-        if (!this.rectSelection.set.get(0)) {
-            this.rectSelection.set.add(this.nested.rect(bbox.width, bbox.height).addClass(this.options.classRect));
-        }
-
-        // Draw Points at the edges, if enabled
-        if (this.options.points && !this.rectSelection.set.get(1)) {
-            var ename ="touchstart", mname = "mousedown";
-            this.rectSelection.set.add(this.nested.circle(this.options.radius).center(0, 0).attr('class', this.options.classPoints + '_lt').on(mname, getMoseDownFunc('lt')).on(ename, getMoseDownFunc('lt')));
-            this.rectSelection.set.add(this.nested.circle(this.options.radius).center(bbox.width, 0).attr('class', this.options.classPoints + '_rt').on(mname, getMoseDownFunc('rt')).on(ename, getMoseDownFunc('rt')));
-            this.rectSelection.set.add(this.nested.circle(this.options.radius).center(bbox.width, bbox.height).attr('class', this.options.classPoints + '_rb').on(mname, getMoseDownFunc('rb')).on(ename, getMoseDownFunc('rb')));
-            this.rectSelection.set.add(this.nested.circle(this.options.radius).center(0, bbox.height).attr('class', this.options.classPoints + '_lb').on(mname, getMoseDownFunc('lb')).on(ename, getMoseDownFunc('lb')));
-
-            this.rectSelection.set.add(this.nested.circle(this.options.radius).center(bbox.width / 2, 0).attr('class', this.options.classPoints + '_t').on(mname, getMoseDownFunc('t')).on(ename, getMoseDownFunc('t')));
-            this.rectSelection.set.add(this.nested.circle(this.options.radius).center(bbox.width, bbox.height / 2).attr('class', this.options.classPoints + '_r').on(mname, getMoseDownFunc('r')).on(ename, getMoseDownFunc('r')));
-            this.rectSelection.set.add(this.nested.circle(this.options.radius).center(bbox.width / 2, bbox.height).attr('class', this.options.classPoints + '_b').on(mname, getMoseDownFunc('b')).on(ename, getMoseDownFunc('b')));
-            this.rectSelection.set.add(this.nested.circle(this.options.radius).center(0, bbox.height / 2).attr('class', this.options.classPoints + '_l').on(mname, getMoseDownFunc('l')).on(ename, getMoseDownFunc('l')));
-
-            this.rectSelection.set.each(function () {
-                this.addClass(_this.options.classPoints);
-            });
-        }
-
-        // draw rotationPint, if enabled
-        if (this.options.rotationPoint && ((this.options.points && !this.rectSelection.set.get(9)) || (!this.options.points && !this.rectSelection.set.get(1)))) {
-
-            var curriedEvent = function (ev) {
-                ev = ev || window.event;
-                ev.preventDefault ? ev.preventDefault() : ev.returnValue = false;
-
-                var x= ev.pageX || ev.touches[0].pageX;
-                var y= ev.pageY || ev.touches[0].pageY;
-                _this.el.fire('rot', {x: x, y: y, event: ev});
-            };
-            this.rectSelection.set.add(this.nested.circle(this.options.radius).center(bbox.width / 2, 20).attr('class', this.options.classPoints + '_rot')
-                .on("touchstart", curriedEvent).on("mousedown", curriedEvent));
-
-        }
-
-    };
-
-    SelectHandler.prototype.handler = function () {
-
-        var bbox = this.el.bbox();
-        this.nested.matrix(new SVG.Matrix(this.el).translate(bbox.x, bbox.y));
-
-        if (this.rectSelection.isSelected) {
-            this.updateRectSelection();
-        }
-
-        if (this.pointSelection.isSelected) {
-            this.updatePointSelection();
-        }
-
-    };
-
-    SelectHandler.prototype.observe = function () {
-        var _this = this;
-
-        if (MutationObserver) {
-            if (this.rectSelection.isSelected || this.pointSelection.isSelected) {
-                this.observerInst = this.observerInst || new MutationObserver(function () {
-                    _this.handler();
-                });
-                this.observerInst.observe(this.el.node, {attributes: true});
-            } else {
-                try {
-                    this.observerInst.disconnect();
-                    delete this.observerInst;
-                } catch (e) {
-                }
-            }
-        } else {
-            this.el.off('DOMAttrModified.select');
-
-            if (this.rectSelection.isSelected || this.pointSelection.isSelected) {
-                this.el.on('DOMAttrModified.select', function () {
-                    _this.handler();
-                });
-            }
-        }
-    };
-
-    SelectHandler.prototype.cleanup = function () {
-
-        //var _this = this;
-
-        if (!this.rectSelection.isSelected && this.rectSelection.set) {
-            // stop watching the element, remove the selection
-            this.rectSelection.set.each(function () {
-                this.remove();
-            });
-
-            this.rectSelection.set.clear();
-            delete this.rectSelection.set;
-        }
-
-        if (!this.pointSelection.isSelected && this.pointSelection.set) {
-            // Remove all points, clear the set, stop watching the element
-            this.pointSelection.set.each(function () {
-                this.remove();
-            });
-
-            this.pointSelection.set.clear();
-            delete this.pointSelection.set;
-        }
-
-        if (!this.pointSelection.isSelected && !this.rectSelection.isSelected) {
-            this.nested.remove();
-            delete this.nested;
-
-            /*try{
-             this.observerInst.disconnect();
-             delete this.observerInst;
-             }catch(e){}
-
-             this.el.off('DOMAttrModified.select');
-
-             }else{
-
-             if(MutationObserver){
-             this.observerInst = this.observerInst || new MutationObserver(function(){ _this.handler(); });
-             this.observerInst.observe(this.el.node, {attributes: true});
-             }else{
-             this.el.on('DOMAttrModified.select', function(){ _this.handler(); } )
-             }
-             */
-        }
-    };
-
-
-    SVG.extend(SVG.Element, {
-        // Select element with mouse
-        selectize: function (value, options) {
-
-            // Check the parameters and reassign if needed
-            if (typeof value === 'object') {
-                options = value;
-                value = true;
-            }
-
-            var selectHandler = this.remember('_selectHandler') || new SelectHandler(this);
-
-            selectHandler.init(value === undefined ? true : value, options || {});
-
-            return this;
-
-        }
+  if (!this.rectSelection.isSelected && this.rectSelection.set) {
+    // stop watching the element, remove the selection
+    this.rectSelection.set.each(function () {
+      this.remove();
     });
 
-    SVG.Element.prototype.selectize.defaults = {
-        points: true,                            // If true, points at the edges are drawn. Needed for resize!
-        classRect: 'svg_select_boundingRect',    // Css-class added to the rect
-        classPoints: 'svg_select_points',        // Css-class added to the points
-        radius: 7,                               // radius of the points
-        rotationPoint: true,                     // If true, rotation point is drawn. Needed for rotation!
-        deepSelect: false                        // If true, moving of single points is possible (only line, polyline, polyon)
-    };
-
-})();
-
-;(function() {
-
-  // creates handler, saves it
-  function DragHandler(el){
-    el.remember('_draggable', this)
-    this.el = el
+    this.rectSelection.set.clear();
+    delete this.rectSelection.set;
   }
 
+  if (!this.pointSelection.isSelected && this.pointSelection.set) {
+    // Remove all points, clear the set, stop watching the element
+    this.pointSelection.set.each(function () {
+      this.remove();
+    });
 
-  // Sets new parameter, starts dragging
-  DragHandler.prototype.init = function(constraint, val){
-    var _this = this
-    this.constraint = constraint
-    this.value = val
-    this.el.on('mousedown.drag', function(e){ _this.start(e) })
-    this.el.on('touchstart.drag', function(e){ _this.start(e) })
+    this.pointSelection.set.clear();
+    delete this.pointSelection.set;
   }
 
-  // transforms one point from screen to user coords
-  DragHandler.prototype.transformPoint = function(event, offset){
-      event = event || window.event
-      var touches = event.changedTouches && event.changedTouches[0] || event
-      this.p.x = touches.pageX - (offset || 0)
-      this.p.y = touches.pageY
-      return this.p.matrixTransform(this.m)
+  if (!this.pointSelection.isSelected && !this.rectSelection.isSelected) {
+    this.nested.remove();
+    delete this.nested;
+
+    /*try{
+     this.observerInst.disconnect();
+     delete this.observerInst;
+     }catch(e){}
+
+     this.el.off('DOMAttrModified.select');
+
+     }else{
+
+     if(MutationObserver){
+     this.observerInst = this.observerInst || new MutationObserver(function(){ _this.handler(); });
+     this.observerInst.observe(this.el.node, {attributes: true});
+     }else{
+     this.el.on('DOMAttrModified.select', function(){ _this.handler(); } )
+     }
+     */
   }
+};
+SVG.extend(SVG.Element, {
 
-  // gets elements bounding box with special handling of groups, nested and use
-  DragHandler.prototype.getBBox = function(){
+  // Select element with mouse
+  selectize: function (value, options) {
 
-    var box = this.el.bbox()
-
-    if(this.el instanceof SVG.Nested) box = this.el.rbox()
-
-    if (this.el instanceof SVG.G || this.el instanceof SVG.Use || this.el instanceof SVG.Nested) {
-      box.x = this.el.x()
-      box.y = this.el.y()
+    // Check the parameters and reassign if needed
+    if (typeof value === 'object') {
+      options = value;
+      value = true;
     }
 
-    return box
-  }
+    var selectHandler = this.remember('_selectHandler') || new SelectHandler(this);
 
-  // start dragging
-  DragHandler.prototype.start = function(e){
+    selectHandler.init(value === undefined ? true : value, options || {});
 
-    // check for left button
-    if(e.type == 'click'|| e.type == 'mousedown' || e.type == 'mousemove'){
-      if((e.which || e.buttons) != 1){
-          return
-      }
-    }
-
-    var _this = this
-
-    // fire beforedrag event
-    this.el.fire('beforedrag', { event: e, handler: this })
-
-    // search for parent on the fly to make sure we can call
-    // draggable() even when element is not in the dom currently
-    this.parent = this.parent || this.el.parent(SVG.Nested) || this.el.parent(SVG.Doc)
-    this.p = this.parent.node.createSVGPoint()
-
-    // save current transformation matrix
-    this.m = this.el.node.getScreenCTM().inverse()
-
-    var box = this.getBBox()
-
-    var anchorOffset;
-
-    // fix text-anchor in text-element (#37)
-    if(this.el instanceof SVG.Text){
-      anchorOffset = this.el.node.getComputedTextLength();
-
-      switch(this.el.attr('text-anchor')){
-        case 'middle':
-          anchorOffset /= 2;
-          break
-        case 'start':
-          anchorOffset = 0;
-          break;
-      }
-    }
-
-    this.startPoints = {
-      // We take absolute coordinates since we are just using a delta here
-      point: this.transformPoint(e, anchorOffset),
-      box:   box,
-      transform: this.el.transform()
-    }
-
-    // add drag and end events to window
-    SVG.on(window, 'mousemove.drag', function(e){ _this.drag(e) })
-    SVG.on(window, 'touchmove.drag', function(e){ _this.drag(e) })
-    SVG.on(window, 'mouseup.drag', function(e){ _this.end(e) })
-    SVG.on(window, 'touchend.drag', function(e){ _this.end(e) })
-
-    // fire dragstart event
-    this.el.fire('dragstart', {event: e, p: this.startPoints.point, m: this.m, handler: this})
-
-    // prevent browser drag behavior
-    e.preventDefault()
-
-    // prevent propagation to a parent that might also have dragging enabled
-    e.stopPropagation();
-  }
-
-  // while dragging
-  DragHandler.prototype.drag = function(e){
-
-    var box = this.getBBox()
-      , p   = this.transformPoint(e)
-      , x   = this.startPoints.box.x + p.x - this.startPoints.point.x
-      , y   = this.startPoints.box.y + p.y - this.startPoints.point.y
-      , c   = this.constraint
-      , gx  = p.x - this.startPoints.point.x
-      , gy  = p.y - this.startPoints.point.y
-
-    var event = new CustomEvent('dragmove', {
-        detail: {
-            event: e
-          , p: p
-          , m: this.m
-          , handler: this
-        }
-      , cancelable: true
-    })
-
-    this.el.fire(event)
-
-    if(event.defaultPrevented) return p
-
-    // move the element to its new position, if possible by constraint
-    if (typeof c == 'function') {
-
-      var coord = c.call(this.el, x, y, this.m)
-
-      // bool, just show us if movement is allowed or not
-      if (typeof coord == 'boolean') {
-        coord = {
-          x: coord,
-          y: coord
-        }
-      }
-
-      // if true, we just move. If !false its a number and we move it there
-      if (coord.x === true) {
-        this.el.x(x)
-      } else if (coord.x !== false) {
-        this.el.x(coord.x)
-      }
-
-      if (coord.y === true) {
-        this.el.y(y)
-      } else if (coord.y !== false) {
-        this.el.y(coord.y)
-      }
-
-    } else if (typeof c == 'object') {
-
-      // keep element within constrained box
-      if (c.minX != null && x < c.minX)
-        x = c.minX
-      else if (c.maxX != null && x > c.maxX - box.width){
-        x = c.maxX - box.width
-      }if (c.minY != null && y < c.minY)
-        y = c.minY
-      else if (c.maxY != null && y > c.maxY - box.height)
-        y = c.maxY - box.height
-
-      if(this.el instanceof SVG.G)
-        this.el.matrix(this.startPoints.transform).transform({x:gx, y: gy}, true)
-      else
-        this.el.move(x, y)
-    }
-
-    // so we can use it in the end-method, too
-    return p
-  }
-
-  DragHandler.prototype.end = function(e){
-
-    // final drag
-    var p = this.drag(e);
-
-    // fire dragend event
-    this.el.fire('dragend', { event: e, p: p, m: this.m, handler: this })
-
-    // unbind events
-    SVG.off(window, 'mousemove.drag')
-    SVG.off(window, 'touchmove.drag')
-    SVG.off(window, 'mouseup.drag')
-    SVG.off(window, 'touchend.drag')
+    return this;
 
   }
+});
 
-  SVG.extend(SVG.Element, {
-    // Make element draggable
-    // Constraint might be an object (as described in readme.md) or a function in the form "function (x, y)" that gets called before every move.
-    // The function can return a boolean or an object of the form {x, y}, to which the element will be moved. "False" skips moving, true moves to raw x, y.
-    draggable: function(value, constraint) {
+SVG.Element.prototype.selectize.defaults = {
+  points: true,                            // If true, points at the edges are drawn. Needed for
+                                           // resize!
+  classRect: 'svg_select_boundingRect',    // Css-class added to the rect
+  classPoints: 'svg_select_points',        // Css-class added to the points
+  radius: 7,                               // radius of the points
+  rotationPoint: true,                     // If true, rotation point is drawn. Needed for rotation!
+  deepSelect: false                        // If true, moving of single points is possible (only
+                                           // line, polyline, polyon)
+};
+// creates handler, saves it
+function DragHandler(el) {
+  el.remember('_draggable', this)
+  this.el = el
+}
 
-      // Check the parameters and reassign if needed
-      if (typeof value == 'function' || typeof value == 'object') {
-        constraint = value
-        value = true
-      }
 
-      var dragHandler = this.remember('_draggable') || new DragHandler(this)
+// Sets new parameter, starts dragging
+DragHandler.prototype.init = function (constraint, val) {
+  var _this = this
+  this.constraint = constraint
+  this.value = val
+  this.el.on('mousedown.drag', function (e) {
+    _this.start(e)
+  })
+  this.el.on('touchstart.drag', function (e) {
+    _this.start(e)
+  })
+}
 
-      // When no parameter is given, value is true
-      value = typeof value === 'undefined' ? true : value
+// transforms one point from screen to user coords
+DragHandler.prototype.transformPoint = function (event, offset) {
+  event = event || window.event
+  var touches = event.changedTouches && event.changedTouches[0] || event
+  this.p.x = touches.pageX - (offset || 0)
+  this.p.y = touches.pageY
+  return this.p.matrixTransform(this.m)
+}
 
-      if(value) dragHandler.init(constraint || {}, value)
-      else {
-        this.off('mousedown.drag')
-        this.off('touchstart.drag')
-      }
+// gets elements bounding box with special handling of groups, nested and use
+DragHandler.prototype.getBBox = function () {
 
-      return this
+  var box = this.el.bbox()
+
+  if (this.el instanceof SVG.Nested) box = this.el.rbox()
+
+  if (this.el instanceof SVG.G || this.el instanceof SVG.Use || this.el instanceof SVG.Nested) {
+    box.x = this.el.x()
+    box.y = this.el.y()
+  }
+
+  return box
+}
+
+// start dragging
+DragHandler.prototype.start = function (e) {
+
+  // check for left button
+  if (e.type == 'click' || e.type == 'mousedown' || e.type == 'mousemove') {
+    if ((e.which || e.buttons) != 1) {
+      return
     }
+  }
 
+  var _this = this
+
+  // fire beforedrag event
+  this.el.fire('beforedrag', { event: e, handler: this })
+
+  // search for parent on the fly to make sure we can call
+  // draggable() even when element is not in the dom currently
+  this.parent = this.parent || this.el.parent(SVG.Nested) || this.el.parent(SVG.Doc)
+  this.p = this.parent.node.createSVGPoint()
+
+  // save current transformation matrix
+  this.m = this.el.node.getScreenCTM().inverse()
+
+  var box = this.getBBox()
+
+  var anchorOffset;
+
+  // fix text-anchor in text-element (#37)
+  if (this.el instanceof SVG.Text) {
+    anchorOffset = this.el.node.getComputedTextLength();
+
+    switch (this.el.attr('text-anchor')) {
+      case 'middle':
+        anchorOffset /= 2;
+        break
+      case 'start':
+        anchorOffset = 0;
+        break;
+    }
+  }
+
+  this.startPoints = {
+    // We take absolute coordinates since we are just using a delta here
+    point: this.transformPoint(e, anchorOffset),
+    box: box,
+    transform: this.el.transform()
+  }
+
+  // add drag and end events to window
+  SVG.on(window, 'mousemove.drag', function (e) {
+    _this.drag(e)
+  })
+  SVG.on(window, 'touchmove.drag', function (e) {
+    _this.drag(e)
+  })
+  SVG.on(window, 'mouseup.drag', function (e) {
+    _this.end(e)
+  })
+  SVG.on(window, 'touchend.drag', function (e) {
+    _this.end(e)
   })
 
-}).call(this);
+  // fire dragstart event
+  this.el.fire('dragstart', { event: e, p: this.startPoints.point, m: this.m, handler: this })
+
+  // prevent browser drag behavior
+  e.preventDefault()
+
+  // prevent propagation to a parent that might also have dragging enabled
+  e.stopPropagation();
+}
+
+// while dragging
+DragHandler.prototype.drag = function (e) {
+
+  var box = this.getBBox()
+    , p = this.transformPoint(e)
+    , x = this.startPoints.box.x + p.x - this.startPoints.point.x
+    , y = this.startPoints.box.y + p.y - this.startPoints.point.y
+    , c = this.constraint
+    , gx = p.x - this.startPoints.point.x
+    , gy = p.y - this.startPoints.point.y;
+
+  var event = new window.CustomEvent('dragmove', {
+    detail: {
+      event: e
+      , p: p
+      , m: this.m
+      , handler: this
+    }
+    , cancelable: true
+  });
+
+  this.el.fire(event)
+
+  if (event.defaultPrevented) return p
+
+  // move the element to its new position, if possible by constraint
+  if (typeof c == 'function') {
+
+    var coord = c.call(this.el, x, y, this.m)
+
+    // bool, just show us if movement is allowed or not
+    if (typeof coord == 'boolean') {
+      coord = {
+        x: coord,
+        y: coord
+      }
+    }
+
+    // if true, we just move. If !false its a number and we move it there
+    if (coord.x === true) {
+      this.el.x(x)
+    } else if (coord.x !== false) {
+      this.el.x(coord.x)
+    }
+
+    if (coord.y === true) {
+      this.el.y(y)
+    } else if (coord.y !== false) {
+      this.el.y(coord.y)
+    }
+
+  } else if (typeof c == 'object') {
+
+    // keep element within constrained box
+    if (c.minX != null && x < c.minX)
+      x = c.minX
+    else if (c.maxX != null && x > c.maxX - box.width) {
+      x = c.maxX - box.width
+    }
+    if (c.minY != null && y < c.minY)
+      y = c.minY
+    else if (c.maxY != null && y > c.maxY - box.height)
+      y = c.maxY - box.height
+
+    if (this.el instanceof SVG.G)
+      this.el.matrix(this.startPoints.transform).transform({ x: gx, y: gy }, true)
+    else
+      this.el.move(x, y)
+  }
+
+  // so we can use it in the end-method, too
+  return p
+}
+
+DragHandler.prototype.end = function (e) {
+
+  // final drag
+  var p = this.drag(e);
+
+  // fire dragend event
+  this.el.fire('dragend', { event: e, p: p, m: this.m, handler: this })
+
+  // unbind events
+  SVG.off(window, 'mousemove.drag')
+  SVG.off(window, 'touchmove.drag')
+  SVG.off(window, 'mouseup.drag')
+  SVG.off(window, 'touchend.drag')
+
+}
+
+SVG.extend(SVG.Element, {
+  // Make element draggable
+  // Constraint might be an object (as described in readme.md) or a function in the form "function
+  // (x, y)" that gets called before every move. The function can return a boolean or an object of
+  // the form {x, y}, to which the element will be moved. "False" skips moving, true moves to raw
+  // x, y.
+  draggable: function (value, constraint) {
+
+    // Check the parameters and reassign if needed
+    if (typeof value == 'function' || typeof value == 'object') {
+      constraint = value
+      value = true
+    }
+
+    var dragHandler = this.remember('_draggable') || new DragHandler(this)
+
+    // When no parameter is given, value is true
+    value = typeof value === 'undefined' ? true : value
+
+    if (value) dragHandler.init(constraint || {}, value)
+    else {
+      this.off('mousedown.drag')
+      this.off('touchstart.drag')
+    }
+
+    return this
+  }
+});
 
 return SVG
 

@@ -82,8 +82,8 @@ var parts = [
 , 'src/selector.js'
 , 'src/helpers.js'
 , 'src/polyfill.js'
-, 'src/svg.select.js'
-, 'src/svg.draggable.js'
+, 'src/select.js'
+, 'src/draggable.js'
 ];
 
 gulp.task('clean', function() {
