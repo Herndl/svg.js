@@ -56,6 +56,7 @@
   "scripts": {
     "build": "gulp",
     "build:test": "gulp unify",
+    "postinstall": "postinstall-build dist \"npm run build\"",
     "test": "karma start .config/karma.conf.js --single-run",
     "test:quick": "karma start .config/karma.quick.js"
   },
